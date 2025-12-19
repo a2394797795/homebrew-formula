@@ -50,18 +50,20 @@ jobs:
           exit 0
         fi
 
-        RELEASE_ASSETS_JSON=$(gh release view "$LATEST_VERSION" -R "${{ env.UPSTREAM_REPO }}" --json assets)
-        URL=$(echo "$RELEASE_ASSETS_JSON" | jq -r '([.assets[] | select(.name == "server.zip") | .browserDownloadUrl] + [.assets[] | select(.name | endswith(".zip")) | .browserDownloadUrl])[0] // empty')
+        RELEASE_ASSET_NAME=$(gh release view "$LATEST_VERSION" -R "${{ env.UPSTREAM_REPO }}" --json assets | jq -r '([.assets[] | select(.name == "server.zip") | .name] + [.assets[] | select(.name | endswith(".zip")) | .name])[0] // empty')
 
-        if [ -z "$URL" ]; then
+        if [ -z "$RELEASE_ASSET_NAME" ]; then
           echo "No suitable .zip asset found in release $LATEST_VERSION."
           exit 1
         fi
 
+        URL="https://github.com/${{ env.UPSTREAM_REPO }}/releases/download/${LATEST_VERSION}/${RELEASE_ASSET_NAME}"
+
         echo "Update needed. Current: ${{ steps.current_version.outputs.current_version }}, Latest: $LATEST_VERSION"
         echo "url=${URL}" >> $GITHUB_OUTPUT
 
-        curl -L -o server.zip "$URL"
+        echo "Downloading asset: $RELEASE_ASSET_NAME"
+        gh release download "$LATEST_VERSION" -R "${{ env.UPSTREAM_REPO }}" -p "$RELEASE_ASSET_NAME" -O server.zip
         SHA256=$(sha256sum server.zip | cut -d' ' -f1)
         echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
 
