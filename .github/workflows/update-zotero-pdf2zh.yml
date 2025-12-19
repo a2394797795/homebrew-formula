@@ -68,8 +68,9 @@ jobs:
         echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
 
         # Only replace the first matching top-level url/sha256 (avoid touching future resource blocks).
-        sed -i "0,/^  url \".*\"/s//  url \"${URL}\"/" Formula/zotero-pdf2zh.rb
-        sed -i "0,/^  sha256 \".*\"/s//  sha256 \"${SHA256}\"/" Formula/zotero-pdf2zh.rb
+        # Use a safe delimiter so URLs containing '/' don't break sed.
+        sed -i "0,/^  url \\\"/{s|^  url \\\".*\\\"|  url \\\"${URL}\\\"|}" Formula/zotero-pdf2zh.rb
+        sed -i "0,/^  sha256 \\\"/{s|^  sha256 \\\".*\\\"|  sha256 \\\"${SHA256}\\\"|}" Formula/zotero-pdf2zh.rb
 
         if git diff --quiet; then
           echo "No changes after attempting update (unexpected)."
