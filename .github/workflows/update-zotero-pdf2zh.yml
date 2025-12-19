@@ -66,6 +66,7 @@ jobs:
         gh release download "$LATEST_VERSION" -R "${{ env.UPSTREAM_REPO }}" -p "$RELEASE_ASSET_NAME" -O server.zip
         SHA256=$(sha256sum server.zip | cut -d' ' -f1)
         echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
+        rm -f server.zip
 
         # Only replace the first matching top-level url/sha256 (avoid touching future resource blocks).
         # Use a safe delimiter so URLs containing '/' don't break sed.
@@ -87,6 +88,8 @@ jobs:
       with:
         branch: bump-zotero-pdf2zh-${{ steps.update_formula.outputs.latest_version }}
         delete-branch: true
+        add-paths: |
+          Formula/zotero-pdf2zh.rb
         title: Update zotero-pdf2zh to ${{ steps.update_formula.outputs.latest_version }}
         commit-message: Update zotero-pdf2zh to ${{ steps.update_formula.outputs.latest_version }}
         body: |
