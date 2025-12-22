@@ -93,7 +93,7 @@ EOF
       # is fragile under Homebrew. We instead ensure the `pdf2zh_next` CLI is available via PATH.
       exec "$VENV/bin/python" server.py --enable_venv false --check_update false "$@"
         SH
-    chmod 0755, bin/"zotero-pdf2zh"
+    (bin/"zotero-pdf2zh").chmod 0755
 
     (bin/"zotero-pdf2zh-update").write <<~SH
       #!/usr/bin/env bash
@@ -241,7 +241,7 @@ EOF
         echo "No change; not restarting."
       fi
     SH
-    chmod 0755, bin/"zotero-pdf2zh-update"
+    (bin/"zotero-pdf2zh-update").chmod 0755
   end
 
   def post_install
