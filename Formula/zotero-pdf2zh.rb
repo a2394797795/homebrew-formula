@@ -23,13 +23,21 @@ class ZoteroPdf2zh < Formula
       UV="#{Formula["uv"].opt_bin}/uv"
 
       mkdir -p "$DST_CFG" "$DATA/translated"
-      # Seed example config files into writable config dir (if missing)
+      # Seed default config files into writable config dir (if missing).
+      # IMPORTANT: Do NOT copy the `.example` files into the writable config dir.
+      # Upstream will overwrite config files whenever `<file>.example` exists in `config/`.
+      # By copying the example content into the real config filenames (and omitting `.example`),
+      # we make config persistent across restarts/upgrades without patching upstream code.
       if [ -d "$SRC_CFG" ]; then
         for f in "$SRC_CFG"/*.example; do
           [ -f "$f" ] || continue
           base="$(basename "$f")"
-          if [ ! -f "$DST_CFG/$base" ]; then
-            cp "$f" "$DST_CFG/$base"
+          target="${base%.example}"
+          if [ "$target" = "$base" ]; then
+            continue
+          fi
+          if [ ! -f "$DST_CFG/$target" ]; then
+            cp "$f" "$DST_CFG/$target"
           fi
         done
       fi
@@ -49,18 +57,41 @@ class ZoteroPdf2zh < Formula
         fi
       }
 
+      ensure_pdf2zh_next_cli() {
+        # The upstream server invokes `pdf2zh_next` as a subprocess. Ensure it's on PATH.
+        export PATH="$VENV/bin:$PATH"
+        if [ -x "$VENV/bin/pdf2zh_next" ]; then
+          return 0
+        fi
+        if [ -x "$VENV/bin/pdf2zh-next" ]; then
+          ln -snf "$VENV/bin/pdf2zh-next" "$VENV/bin/pdf2zh_next"
+          return 0
+        fi
+        cat >"$VENV/bin/pdf2zh_next" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$SELF_DIR/python" -m pdf2zh_next "$@"
+EOF
+        chmod 0755 "$VENV/bin/pdf2zh_next"
+      }
+
       if [ ! -x "$VENV/bin/python" ]; then
         mkdir -p "$DATA"
         "$UV" venv --python 3.12 "$VENV"
         install_base_deps
       fi
+      ensure_pdf2zh_next_cli
 
       if [ -f "$MARKER" ]; then
         echo "Dependency update requested (marker found). Attempting update..."
         "#{opt_bin}/zotero-pdf2zh-update" --no-restart || echo "Dependency update failed; continuing with existing environment."
       fi
 
-      exec "$VENV/bin/python" server.py --check_update false "$@"
+      # Disable upstream virtualenv manager and rely on the venv we manage here.
+      # The upstream manager expects to create per-engine venvs under the install directory, which
+      # is fragile under Homebrew. We instead ensure the `pdf2zh_next` CLI is available via PATH.
+      exec "$VENV/bin/python" server.py --enable_venv false --check_update false "$@"
         SH
     chmod 0755, bin/"zotero-pdf2zh"
 
@@ -102,6 +133,20 @@ class ZoteroPdf2zh < Formula
 
       # Make sure we have all baseline deps that the upstream server expects.
       install_base_deps
+
+      # Ensure the CLI is available for the upstream server's subprocess calls.
+      export PATH="$VENV/bin:$PATH"
+      if [ ! -x "$VENV/bin/pdf2zh_next" ] && [ -x "$VENV/bin/pdf2zh-next" ]; then
+        ln -snf "$VENV/bin/pdf2zh-next" "$VENV/bin/pdf2zh_next"
+      elif [ ! -x "$VENV/bin/pdf2zh_next" ]; then
+        cat >"$VENV/bin/pdf2zh_next" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$SELF_DIR/python" -m pdf2zh_next "$@"
+EOF
+        chmod 0755 "$VENV/bin/pdf2zh_next"
+      fi
 
       current="$("$VENV/bin/python" - <<'PY'
       try:

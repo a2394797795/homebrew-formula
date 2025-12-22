@@ -46,6 +46,19 @@ tail -n 200 "$(brew --prefix)/var/log/zotero-pdf2zh.log"
 
 启动时会把可写目录软链接到安装目录结构中，以保持上游目录布局兼容。
 
+### 配置文件不会被覆盖的约束
+
+上游项目会在启动时根据 `*.example` 文件生成/覆盖配置文件。为保证配置持久化，本 tap 的 wrapper 会：
+
+- 只在配置不存在时，从 `*.example` 生成 `config.json`/`config.toml`/`venv.json`
+- **不会**把 `*.example` 文件复制到可写配置目录中（否则上游会在每次启动时覆盖配置）
+
+因此，长期配置应当修改：
+
+- `$(brew --prefix)/var/zotero-pdf2zh/config/config.json`
+- `$(brew --prefix)/var/zotero-pdf2zh/config/config.toml`
+- `$(brew --prefix)/var/zotero-pdf2zh/config/venv.json`
+
 ---
 
 ## 更新策略（使用者视角）
@@ -78,7 +91,7 @@ zotero-pdf2zh-update
 
 - 如果 `pdf2zh_next` 版本发生变化：会自动重启服务
 - 如果没有变化：不会重启
-- 如果更新后 `import pdf2zh_next` 失败：会报错并拒绝重启（避免把服务重启到坏环境）
+- 如果更新后健康检查失败：会尝试回滚依赖并拒绝重启（避免把服务重启到坏环境）
 
 ---
 
