@@ -28,7 +28,9 @@ jobs:
       id: current_version
       run: |
         CURRENT_VERSION=$(sed -n 's|.*releases/download/\(v[0-9][0-9.]*\)/.*|\1|p' Formula/zotero-pdf2zh.rb)
+        CURRENT_SHA=$(sed -n 's|^  sha256 \"\\([0-9a-f]\\{64\\}\\)\"|\\1|p' Formula/zotero-pdf2zh.rb | head -n 1)
         echo "current_version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
+        echo "current_sha=${CURRENT_SHA}" >> $GITHUB_OUTPUT
 
     - name: Get latest release and update formula
       id: update_formula
@@ -37,6 +39,7 @@ jobs:
       run: |
         LATEST_VERSION=$(gh release list -R "${{ env.UPSTREAM_REPO }}" --json tagName,isPrerelease -L 10 | jq -r '[.[] | select(.isPrerelease == false)] | .[0].tagName')
         echo "latest_version=${LATEST_VERSION}" >> $GITHUB_OUTPUT
+        ZERO_SHA="0000000000000000000000000000000000000000000000000000000000000000"
 
         if [ -z "$LATEST_VERSION" ]; then
           echo "No new release found."
@@ -44,8 +47,8 @@ jobs:
           exit 0
         fi
 
-        if [ "${{ steps.current_version.outputs.current_version }}" = "$LATEST_VERSION" ]; then
-          echo "No update needed. Current: ${{ steps.current_version.outputs.current_version }}, Latest: $LATEST_VERSION"
+        if [ "${{ steps.current_version.outputs.current_version }}" = "$LATEST_VERSION" ] && [ "${{ steps.current_version.outputs.current_sha }}" != "$ZERO_SHA" ] && [ -n "${{ steps.current_version.outputs.current_sha }}" ]; then
+          echo "No update needed. Current: ${{ steps.current_version.outputs.current_version }}, Latest: $LATEST_VERSION (sha256 looks valid)"
           echo "update_needed=false" >> $GITHUB_OUTPUT
           exit 0
         fi
