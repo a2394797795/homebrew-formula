@@ -41,19 +41,23 @@ class ZoteroPdf2zh < Formula
       # Keep startup deterministic: don't upgrade dependencies on every start.
       # We only create the environment once, and only upgrade when explicitly requested
       # (e.g., after a `brew upgrade`, via the marker file).
+      install_base_deps() {
+        if [ -f "$ROOT/requirements.txt" ]; then
+          "$UV" pip install -p "$VENV/bin/python" -r "$ROOT/requirements.txt"
+        else
+          "$UV" pip install -p "$VENV/bin/python" flask toml pypdf PyMuPDF packaging pdf2zh_next
+        fi
+      }
+
       if [ ! -x "$VENV/bin/python" ]; then
         mkdir -p "$DATA"
         "$UV" venv --python 3.12 "$VENV"
-        "$UV" pip install -p "$VENV/bin/python" flask toml pypdf PyMuPDF packaging pdf2zh_next
+        install_base_deps
       fi
 
       if [ -f "$MARKER" ]; then
         echo "Dependency update requested (marker found). Attempting update..."
-        if "#{opt_bin}/zotero-pdf2zh-update" --no-restart; then
-          rm -f "$MARKER"
-        else
-          echo "Dependency update failed; continuing with existing environment."
-        fi
+        "#{opt_bin}/zotero-pdf2zh-update" --no-restart || echo "Dependency update failed; continuing with existing environment."
       fi
 
       exec "$VENV/bin/python" server.py --check_update false "$@"
@@ -77,32 +81,79 @@ class ZoteroPdf2zh < Formula
       VENV="$DATA/venv"
       MARKER="$DATA/needs-deps-update"
       UV="#{Formula["uv"].opt_bin}/uv"
+      REQ_PREV="$DATA/requirements.prev.txt"
 
       mkdir -p "$DATA"
       cd "$ROOT"
 
       # Ensure environment exists (but don't upgrade on service start).
+      install_base_deps() {
+        if [ -f "$ROOT/requirements.txt" ]; then
+          "$UV" pip install -p "$VENV/bin/python" -r "$ROOT/requirements.txt"
+        else
+          "$UV" pip install -p "$VENV/bin/python" flask toml pypdf PyMuPDF packaging pdf2zh_next
+        fi
+      }
+
       if [ ! -x "$VENV/bin/python" ]; then
         "$UV" venv --python 3.12 "$VENV"
-        "$UV" pip install -p "$VENV/bin/python" flask toml pypdf PyMuPDF packaging pdf2zh_next
+        install_base_deps
       fi
+
+      # Make sure we have all baseline deps that the upstream server expects.
+      install_base_deps
 
       current="$("$VENV/bin/python" - <<'PY'
       try:
-          from importlib.metadata import version
-          print(version("pdf2zh-next"))
+          import re
+          from importlib import metadata
+
+          def norm(name: str) -> str:
+              return re.sub(r"[-_.]+", "-", name).lower()
+
+          candidates = {norm("pdf2zh_next"), norm("pdf2zh-next")}
+          found = None
+          for dist in metadata.distributions():
+              n = dist.metadata.get("Name") or dist.name
+              if n and norm(n) in candidates:
+                  found = dist
+                  break
+
+          if found is None:
+              print("unknown")
+          else:
+              print(found.version)
       except Exception:
           print("unknown")
       PY
       )"
+
+      # Snapshot current environment for rollback.
+      "$UV" pip freeze -p "$VENV/bin/python" > "$REQ_PREV" || true
 
       # Refresh only when explicitly updating.
       "$UV" pip install -p "$VENV/bin/python" -U pdf2zh_next
 
       new="$("$VENV/bin/python" - <<'PY'
       try:
-          from importlib.metadata import version
-          print(version("pdf2zh-next"))
+          import re
+          from importlib import metadata
+
+          def norm(name: str) -> str:
+              return re.sub(r"[-_.]+", "-", name).lower()
+
+          candidates = {norm("pdf2zh_next"), norm("pdf2zh-next")}
+          found = None
+          for dist in metadata.distributions():
+              n = dist.metadata.get("Name") or dist.name
+              if n and norm(n) in candidates:
+                  found = dist
+                  break
+
+          if found is None:
+              print("unknown")
+          else:
+              print(found.version)
       except Exception:
           print("unknown")
       PY
@@ -110,9 +161,24 @@ class ZoteroPdf2zh < Formula
 
       echo "pdf2zh_next: ${current} -> ${new}"
 
-      # Quick sanity check; don't restart if import fails.
-      if ! "$VENV/bin/python" -c "import pdf2zh_next" >/dev/null 2>&1; then
-        echo "pdf2zh_next import failed after update; not restarting service."
+      health_check() {
+        "$UV" pip check -p "$VENV/bin/python"
+        "$VENV/bin/python" -c "import pdf2zh_next"
+        "$VENV/bin/python" server.py --help >/dev/null
+      }
+
+      if ! health_check >/dev/null 2>&1; then
+        echo "Health check failed after update; attempting rollback..."
+        if [ -s "$REQ_PREV" ]; then
+          "$UV" pip sync -p "$VENV/bin/python" "$REQ_PREV" >/dev/null
+        fi
+        if health_check >/dev/null 2>&1; then
+          echo "Rollback succeeded; not restarting."
+          rm -f "$MARKER"
+          exit 1
+        fi
+        echo "Rollback failed; leaving environment as-is and not restarting."
+        rm -f "$MARKER"
         exit 1
       fi
 
