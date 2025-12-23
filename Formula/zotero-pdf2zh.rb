@@ -17,14 +17,14 @@ class ZoteroPdf2zh < Formula
     #   root_path/config and root_path/translated
     # So we replace those directories with symlinks into `var`, and keep the upstream
     # example files in a separate templates directory.
-    (libexec/"config_templates").rm_rf
+    rm_rf libexec/"config_templates"
     if (libexec/"config").exist?
-      (libexec/"config").rename(libexec/"config_templates")
+      mv libexec/"config", libexec/"config_templates"
     end
-    (libexec/"config").rm_rf
+    rm_rf libexec/"config"
     ln_s var/"zotero-pdf2zh/config", libexec/"config"
 
-    (libexec/"translated").rm_rf
+    rm_rf libexec/"translated"
     ln_s var/"zotero-pdf2zh/translated", libexec/"translated"
 
     wrapper = buildpath/"zotero-pdf2zh"
@@ -236,7 +236,11 @@ class ZoteroPdf2zh < Formula
   end
 
   test do
-    # Ensure the wrapper is callable and prints help without starting the server
-    system bin/"zotero-pdf2zh", "--help"
+    assert_predicate bin/"zotero-pdf2zh", :executable?
+    assert_predicate bin/"zotero-pdf2zh-update", :executable?
+    assert_match "#!/usr/bin/env bash", (bin/"zotero-pdf2zh").readlines.first.to_s
+    assert_match "#!/usr/bin/env bash", (bin/"zotero-pdf2zh-update").readlines.first.to_s
+    system "bash", "-n", bin/"zotero-pdf2zh"
+    system "bash", "-n", bin/"zotero-pdf2zh-update"
   end
 end
