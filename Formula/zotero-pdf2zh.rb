@@ -11,6 +11,22 @@ class ZoteroPdf2zh < Formula
     # Unzip the downloaded file and install the contents into libexec
     libexec.install Dir["*"]
 
+    # Persist user data/config outside the Cellar.
+    #
+    # Upstream computes paths relative to `server.py`'s directory:
+    #   root_path/config and root_path/translated
+    # So we replace those directories with symlinks into `var`, and keep the upstream
+    # example files in a separate templates directory.
+    (libexec/"config_templates").rm_rf
+    if (libexec/"config").exist?
+      (libexec/"config").rename(libexec/"config_templates")
+    end
+    (libexec/"config").rm_rf
+    ln_s var/"zotero-pdf2zh/config", libexec/"config"
+
+    (libexec/"translated").rm_rf
+    ln_s var/"zotero-pdf2zh/translated", libexec/"translated"
+
     wrapper = buildpath/"zotero-pdf2zh"
     wrapper.write <<~SH
       #!/usr/bin/env bash
@@ -19,34 +35,11 @@ class ZoteroPdf2zh < Formula
       DATA="#{var}/zotero-pdf2zh"
       VENV="$DATA/venv"
       MARKER="$DATA/needs-deps-update"
-      SRC_CFG="$ROOT/config"
-      DST_CFG="$DATA/config"
       UV="#{Formula["uv"].opt_bin}/uv"
 
-      mkdir -p "$DST_CFG" "$DATA/translated"
-      # Seed default config files into writable config dir (if missing).
-      # IMPORTANT: Do NOT copy the `.example` files into the writable config dir.
-      # Upstream will overwrite config files whenever `<file>.example` exists in `config/`.
-      # By copying the example content into the real config filenames (and omitting `.example`),
-      # we make config persistent across restarts/upgrades without patching upstream code.
-      if [ -d "$SRC_CFG" ]; then
-        for f in "$SRC_CFG"/*.example; do
-          [ -f "$f" ] || continue
-          base="$(basename "$f")"
-          target="${base%.example}"
-          if [ "$target" = "$base" ]; then
-            continue
-          fi
-          if [ ! -f "$DST_CFG/$target" ]; then
-            cp "$f" "$DST_CFG/$target"
-          fi
-        done
-      fi
-      # Link writable data into install tree and run
+      mkdir -p "$DATA/config" "$DATA/translated"
       cd "$ROOT"
-      ln -snf "$DST_CFG" config
-      ln -snf "$DATA/translated" translated
-      
+
       # Keep startup deterministic: don't upgrade dependencies on every start.
       # We only create the environment once, and only upgrade when explicitly requested
       # (e.g., after a `brew upgrade`, via the marker file).
@@ -205,10 +198,27 @@ class ZoteroPdf2zh < Formula
   end
 
   def post_install
+    data = var/"zotero-pdf2zh"
+    config = data/"config"
+    config.mkpath
+    (data/"translated").mkpath
+
+    # Seed default config files into a writable location (if missing).
+    #
+    # IMPORTANT: Do NOT copy the `.example` files into the writable config dir.
+    # Upstream overwrites config files whenever `<file>.example` exists in `config/`.
+    templates = opt_libexec/"config_templates"
+    if templates.directory?
+      templates.glob("*.example").each do |ex|
+        target = config/ex.basename(".example")
+        next if target.exist?
+        target.write ex.read
+      end
+    end
+
     # Request a one-time dependency refresh after (re)install/upgrade.
     # This keeps normal service starts offline/fast, while still allowing
     # `brew upgrade` + service restart to pick up new PyPI releases.
-    (var/"zotero-pdf2zh").mkpath
     (var/"zotero-pdf2zh/needs-deps-update").atomic_write("1\n")
   end
 
