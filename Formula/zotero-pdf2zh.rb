@@ -11,7 +11,8 @@ class ZoteroPdf2zh < Formula
     # Unzip the downloaded file and install the contents into libexec
     libexec.install Dir["*"]
 
-    (bin/"zotero-pdf2zh").write <<~SH
+    wrapper = buildpath/"zotero-pdf2zh"
+    wrapper.write <<~SH
       #!/usr/bin/env bash
       set -euo pipefail
       ROOT="#{opt_libexec}"
@@ -67,12 +68,12 @@ class ZoteroPdf2zh < Formula
           ln -snf "$VENV/bin/pdf2zh-next" "$VENV/bin/pdf2zh_next"
           return 0
         fi
-        cat >"$VENV/bin/pdf2zh_next" <<'EOF'
-      #!/usr/bin/env bash
-      set -euo pipefail
-      SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-      exec "$SELF_DIR/python" -m pdf2zh_next "$@"
-      EOF
+        printf '%s\n' \
+          '#!/usr/bin/env bash' \
+          'set -euo pipefail' \
+          'SELF_DIR="$(cd "$(dirname "$0")" && pwd)"' \
+          'exec "$SELF_DIR/python" -m pdf2zh_next "$@"' \
+          >"$VENV/bin/pdf2zh_next"
         chmod 0755 "$VENV/bin/pdf2zh_next"
       }
 
@@ -93,9 +94,11 @@ class ZoteroPdf2zh < Formula
       # is fragile under Homebrew. We instead ensure the `pdf2zh_next` CLI is available via PATH.
       exec "$VENV/bin/python" server.py --enable_venv false --check_update false "$@"
         SH
-    (bin/"zotero-pdf2zh").chmod 0755
+    wrapper.chmod 0755
+    bin.install wrapper
 
-    (bin/"zotero-pdf2zh-update").write <<~SH
+    updater = buildpath/"zotero-pdf2zh-update"
+    updater.write <<~SH
       #!/usr/bin/env bash
       set -euo pipefail
       RESTART=1
@@ -139,39 +142,18 @@ class ZoteroPdf2zh < Formula
       if [ ! -x "$VENV/bin/pdf2zh_next" ] && [ -x "$VENV/bin/pdf2zh-next" ]; then
         ln -snf "$VENV/bin/pdf2zh-next" "$VENV/bin/pdf2zh_next"
       elif [ ! -x "$VENV/bin/pdf2zh_next" ]; then
-        cat >"$VENV/bin/pdf2zh_next" <<'EOF'
-      #!/usr/bin/env bash
-      set -euo pipefail
-      SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-      exec "$SELF_DIR/python" -m pdf2zh_next "$@"
-      EOF
+        printf '%s\n' \
+          '#!/usr/bin/env bash' \
+          'set -euo pipefail' \
+          'SELF_DIR="$(cd "$(dirname "$0")" && pwd)"' \
+          'exec "$SELF_DIR/python" -m pdf2zh_next "$@"' \
+          >"$VENV/bin/pdf2zh_next"
         chmod 0755 "$VENV/bin/pdf2zh_next"
       fi
 
-      current="$("$VENV/bin/python" - <<'PY'
-      try:
-          import re
-          from importlib import metadata
+      PYCODE=$'try:\n    import re\n    from importlib import metadata\n\n    def norm(name: str) -> str:\n        return re.sub(r\"[-_.]+\", \"-\", name).lower()\n\n    candidates = {norm(\"pdf2zh_next\"), norm(\"pdf2zh-next\")}\n    version = \"unknown\"\n    for dist in metadata.distributions():\n        n = (dist.metadata.get(\"Name\") or dist.name or \"\")\n        if n and norm(n) in candidates:\n            version = dist.version\n            break\n    print(version)\nexcept Exception:\n    print(\"unknown\")\n'
 
-          def norm(name: str) -> str:
-              return re.sub(r"[-_.]+", "-", name).lower()
-
-          candidates = {norm("pdf2zh_next"), norm("pdf2zh-next")}
-          found = None
-          for dist in metadata.distributions():
-              n = dist.metadata.get("Name") or dist.name
-              if n and norm(n) in candidates:
-                  found = dist
-                  break
-
-          if found is None:
-              print("unknown")
-          else:
-              print(found.version)
-      except Exception:
-          print("unknown")
-      PY
-      )"
+      current="$("$VENV/bin/python" -c "$PYCODE")"
 
       # Snapshot current environment for rollback.
       "$UV" pip freeze -p "$VENV/bin/python" > "$REQ_PREV" || true
@@ -179,30 +161,7 @@ class ZoteroPdf2zh < Formula
       # Refresh only when explicitly updating.
       "$UV" pip install -p "$VENV/bin/python" -U pdf2zh_next
 
-      new="$("$VENV/bin/python" - <<'PY'
-      try:
-          import re
-          from importlib import metadata
-
-          def norm(name: str) -> str:
-              return re.sub(r"[-_.]+", "-", name).lower()
-
-          candidates = {norm("pdf2zh_next"), norm("pdf2zh-next")}
-          found = None
-          for dist in metadata.distributions():
-              n = dist.metadata.get("Name") or dist.name
-              if n and norm(n) in candidates:
-                  found = dist
-                  break
-
-          if found is None:
-              print("unknown")
-          else:
-              print(found.version)
-      except Exception:
-          print("unknown")
-      PY
-      )"
+      new="$("$VENV/bin/python" -c "$PYCODE")"
 
       echo "pdf2zh_next: ${current} -> ${new}"
 
@@ -241,7 +200,8 @@ class ZoteroPdf2zh < Formula
         echo "No change; not restarting."
       fi
     SH
-    (bin/"zotero-pdf2zh-update").chmod 0755
+    updater.chmod 0755
+    bin.install updater
   end
 
   def post_install
