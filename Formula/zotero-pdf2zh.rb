@@ -68,11 +68,11 @@ class ZoteroPdf2zh < Formula
           return 0
         fi
         cat >"$VENV/bin/pdf2zh_next" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec "$SELF_DIR/python" -m pdf2zh_next "$@"
-EOF
+      #!/usr/bin/env bash
+      set -euo pipefail
+      SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+      exec "$SELF_DIR/python" -m pdf2zh_next "$@"
+      EOF
         chmod 0755 "$VENV/bin/pdf2zh_next"
       }
 
@@ -140,11 +140,11 @@ EOF
         ln -snf "$VENV/bin/pdf2zh-next" "$VENV/bin/pdf2zh_next"
       elif [ ! -x "$VENV/bin/pdf2zh_next" ]; then
         cat >"$VENV/bin/pdf2zh_next" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec "$SELF_DIR/python" -m pdf2zh_next "$@"
-EOF
+      #!/usr/bin/env bash
+      set -euo pipefail
+      SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+      exec "$SELF_DIR/python" -m pdf2zh_next "$@"
+      EOF
         chmod 0755 "$VENV/bin/pdf2zh_next"
       fi
 
