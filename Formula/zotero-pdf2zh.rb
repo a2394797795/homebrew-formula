@@ -203,6 +203,10 @@ class ZoteroPdf2zh < Formula
     config.mkpath
     (data/"translated").mkpath
 
+    # Remove any `.example` files from the writable config directory.
+    # If they exist, upstream will overwrite the real config files on every start.
+    config.glob("*.example").each(&:unlink)
+
     # Seed default config files into a writable location (if missing).
     #
     # IMPORTANT: Do NOT copy the `.example` files into the writable config dir.
