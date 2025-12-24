@@ -4,28 +4,47 @@ class ZoteroPdf2zh < Formula
   homepage "https://github.com/guaguastandup/zotero-pdf2zh"
   url "https://github.com/guaguastandup/zotero-pdf2zh/releases/download/v3.0.37/server.zip"
   sha256 "e41b6b9d951034b74bc7407ba7faf5afe4a383accfa571c2fc9896cb189fb4c3"
+  revision 1
 
   depends_on "uv"
 
   def install
-    # Unzip the downloaded file and install the contents into libexec
-    libexec.install Dir["*"]
+    # Install upstream files into libexec.
+    #
+    # NOTE: `brew reinstall` may reuse the existing keg path; ensure we don't keep any
+    # leftover runtime-generated files from prior installs.
+    rm_rf libexec
+    libexec.mkpath
+
+    # Keep upstream example files, but do not leave them in the runtime config dir.
+    # Upstream overwrites config files whenever `<file>.example` exists in `config/`.
+    templates = libexec/"config_templates"
+    rm_rf templates
+    templates.mkpath
+    if (buildpath/"config").directory?
+      templates.install Dir["config/*"]
+    else
+      odie "Upstream archive is missing the expected `config/` directory"
+    end
+
+    # Install everything except the upstream config/translated dirs (we replace them with symlinks into `var`).
+    to_install = Dir["*"] - ["__MACOSX", "config", "translated", "server.zip"]
+    libexec.install to_install
+
+    replace_with_symlink = lambda do |link, target|
+      if link.symlink? || link.file?
+        link.unlink
+      elsif link.directory?
+        rm_rf link
+      elsif link.exist?
+        rm_f link
+      end
+      ln_s target, link
+    end
 
     # Persist user data/config outside the Cellar.
-    #
-    # Upstream computes paths relative to `server.py`'s directory:
-    #   root_path/config and root_path/translated
-    # So we replace those directories with symlinks into `var`, and keep the upstream
-    # example files in a separate templates directory.
-    rm_rf libexec/"config_templates"
-    if (libexec/"config").exist?
-      mv libexec/"config", libexec/"config_templates"
-    end
-    rm_rf libexec/"config"
-    ln_s var/"zotero-pdf2zh/config", libexec/"config"
-
-    rm_rf libexec/"translated"
-    ln_s var/"zotero-pdf2zh/translated", libexec/"translated"
+    replace_with_symlink.call(libexec/"config", var/"zotero-pdf2zh/config")
+    replace_with_symlink.call(libexec/"translated", var/"zotero-pdf2zh/translated")
 
     wrapper = buildpath/"zotero-pdf2zh"
     wrapper.write <<~SH
@@ -89,6 +108,7 @@ class ZoteroPdf2zh < Formula
         SH
     wrapper.chmod 0755
     bin.install wrapper
+    (bin/"zotero-pdf2zh").chmod 0755
 
     updater = buildpath/"zotero-pdf2zh-update"
     updater.write <<~SH
@@ -195,6 +215,7 @@ class ZoteroPdf2zh < Formula
     SH
     updater.chmod 0755
     bin.install updater
+    (bin/"zotero-pdf2zh-update").chmod 0755
   end
 
   def post_install
@@ -205,7 +226,7 @@ class ZoteroPdf2zh < Formula
 
     # Remove any `.example` files from the writable config directory.
     # If they exist, upstream will overwrite the real config files on every start.
-    config.glob("*.example").each(&:unlink)
+    config.glob("**/*.example").each(&:unlink)
 
     # Seed default config files into a writable location (if missing).
     #
@@ -213,9 +234,12 @@ class ZoteroPdf2zh < Formula
     # Upstream overwrites config files whenever `<file>.example` exists in `config/`.
     templates = opt_libexec/"config_templates"
     if templates.directory?
-      templates.glob("*.example").each do |ex|
-        target = config/ex.basename(".example")
+      templates.glob("**/*.example").each do |ex|
+        next if ex.directory?
+        rel = ex.relative_path_from(templates).to_s.sub(/\.example\z/, "")
+        target = config/rel
         next if target.exist?
+        target.dirname.mkpath
         target.write ex.read
       end
     end
@@ -242,5 +266,9 @@ class ZoteroPdf2zh < Formula
     assert_match "#!/usr/bin/env bash", (bin/"zotero-pdf2zh-update").readlines.first.to_s
     system "bash", "-n", bin/"zotero-pdf2zh"
     system "bash", "-n", bin/"zotero-pdf2zh-update"
+
+    assert_predicate opt_libexec/"config_templates", :directory?
+    assert_predicate opt_libexec/"config", :symlink?
+    assert_predicate opt_libexec/"translated", :symlink?
   end
 end
