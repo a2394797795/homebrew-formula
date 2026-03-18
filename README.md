@@ -7,7 +7,7 @@
 - **不修改上游源码**：server.zip 直接来自上游 Release，本 tap 只做「启动包装 + 目录布局适配」。
 - **配置/数据持久化**：任何可写内容都放到 `$(brew --prefix)/var/zotero-pdf2zh`，避免写入 Cellar（升级/重装会变）。
 - **启动尽量离线/可预测**：默认启动不强制联网升级依赖；依赖升级通过显式命令触发，并带健康检查/回滚。
-- **上游版本自动跟进**：GitHub Actions 每天检查上游 Release，自动更新 Formula 的 `url`/`sha256` 并提 PR。
+- **上游版本自动跟进**：GitHub Actions 每天检查上游 stable Release，自动更新 Formula 的 `url`/`sha256`、做安装/健康检查、提 PR 并自动合并。
 
 ---
 
@@ -151,9 +151,20 @@ rm -rf "$(brew --prefix)/var/zotero-pdf2zh"
 - 工作流文件：`.github/workflows/update-zotero-pdf2zh.yml`
 - 行为：
   - 读取 `Formula/zotero-pdf2zh.rb` 的当前 `url`/`sha256`
-  - 查询上游最新 Release tag
+  - 查询上游最新 stable Release tag
   - 下载上游 release asset 并计算 sha256
-  - 仅修改 `Formula/zotero-pdf2zh.rb`，创建 PR 并开启 squash auto-merge
+  - 仅修改 `Formula/zotero-pdf2zh.rb`
+  - 执行 `./scripts/smoke_test.sh`（`brew install` + 本地 `/health` 健康检查）
+  - 创建 PR、开启 squash auto-merge，并自动清理已合并的 `bump-zotero-pdf2zh-*` 分支
+
+### 定时任务保活
+
+GitHub 会在 public repo 长时间无活动时自动禁用 scheduled workflows。为避免“超过一段时间后自动更新静默失效”，本仓库的定时工作流会在默认分支连续 45 天无活动、且当天没有版本更新时，自动提交一个隐藏 keepalive 文件：
+
+- 文件：`.github/workflow-keepalive`
+- 目的：只用于维持 GitHub schedule 处于启用状态，不参与业务逻辑
+
+如果你是在 schedule 已经被 GitHub 自动禁用之后才合并这些改动，仍需要先在 GitHub Actions 页面手动 re-enable 一次；之后保活机制才会接管。
 
 ### 常见问题
 

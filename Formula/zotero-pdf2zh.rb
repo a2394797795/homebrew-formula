@@ -9,6 +9,14 @@ class ZoteroPdf2zh < Formula
   depends_on "uv"
 
   def install
+    source_root = if (buildpath/"server.py").exist? && (buildpath/"config").directory?
+      buildpath
+    elsif (buildpath/"server/server.py").exist? && (buildpath/"server/config").directory?
+      buildpath/"server"
+    else
+      odie "Upstream archive is missing the expected server layout"
+    end
+
     # Install upstream files into libexec.
     #
     # NOTE: `brew reinstall` may reuse the existing keg path; ensure we don't keep any
@@ -21,15 +29,19 @@ class ZoteroPdf2zh < Formula
     templates = libexec/"config_templates"
     rm_rf templates
     templates.mkpath
-    if (buildpath/"config").directory?
-      templates.install Dir["config/*"]
+    if (source_root/"config").directory?
+      templates.install Dir[(source_root/"config/*").to_s].reject { |path| File.basename(path) == ".DS_Store" }
     else
       odie "Upstream archive is missing the expected `config/` directory"
     end
 
     # Install everything except the upstream config/translated dirs (we replace them with symlinks into `var`).
-    to_install = Dir["*"] - ["__MACOSX", "config", "translated", "server.zip"]
+    to_install = source_root.children.reject do |path|
+      [".claude", ".github", "config", "translated"].include?(path.basename.to_s)
+    end
     libexec.install to_install
+    libexec.glob("**/.DS_Store").each(&:unlink)
+    rm_rf libexec/"__MACOSX"
 
     replace_with_symlink = lambda do |link, target|
       if link.symlink? || link.file?
@@ -268,6 +280,7 @@ class ZoteroPdf2zh < Formula
     system "bash", "-n", bin/"zotero-pdf2zh-update"
 
     assert_predicate opt_libexec/"config_templates", :directory?
+    assert_predicate opt_libexec/"server.py", :exist?
     assert_predicate opt_libexec/"config", :symlink?
     assert_predicate opt_libexec/"translated", :symlink?
   end

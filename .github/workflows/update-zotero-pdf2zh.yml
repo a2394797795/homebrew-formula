@@ -3,10 +3,11 @@ name: Update zotero-pdf2zh
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'  # Run every day at midnight
+    - cron: '17 3 * * *'
 
 env:
   UPSTREAM_REPO: guaguastandup/zotero-pdf2zh
+  KEEPALIVE_FILE: .github/workflow-keepalive
 
 concurrency:
   group: update-zotero-pdf2zh
@@ -19,90 +20,112 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Get current version from formula
-      id: current_version
-      run: |
-        CURRENT_VERSION=$(sed -n 's|.*releases/download/\(v[0-9][0-9.]*\)/.*|\1|p' Formula/zotero-pdf2zh.rb)
-        CURRENT_SHA=$(sed -n 's|^  sha256 \"\\([0-9a-f]\\{64\\}\\)\"|\\1|p' Formula/zotero-pdf2zh.rb | head -n 1)
-        echo "current_version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
-        echo "current_sha=${CURRENT_SHA}" >> $GITHUB_OUTPUT
+      - name: Prune merged automation branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          default_branch='${{ github.event.repository.default_branch }}'
+          git fetch origin "$default_branch" '+refs/heads/bump-zotero-pdf2zh-*:+refs/remotes/origin/bump-zotero-pdf2zh-*' || true
 
-    - name: Get latest release and update formula
-      id: update_formula
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        LATEST_VERSION=$(gh release list -R "${{ env.UPSTREAM_REPO }}" --json tagName,isPrerelease -L 10 | jq -r '[.[] | select(.isPrerelease == false)] | .[0].tagName')
-        echo "latest_version=${LATEST_VERSION}" >> $GITHUB_OUTPUT
-        ZERO_SHA="0000000000000000000000000000000000000000000000000000000000000000"
+          mapfile -t branches < <(
+            git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/bump-zotero-pdf2zh-*' | sed 's#^origin/##'
+          )
 
-        if [ -z "$LATEST_VERSION" ]; then
-          echo "No new release found."
-          echo "update_needed=false" >> $GITHUB_OUTPUT
-          exit 0
-        fi
+          if [ "${#branches[@]}" -eq 0 ]; then
+            echo 'No remote automation branches to prune.'
+            exit 0
+          fi
 
-        if [ "${{ steps.current_version.outputs.current_version }}" = "$LATEST_VERSION" ] && [ "${{ steps.current_version.outputs.current_sha }}" != "$ZERO_SHA" ] && [ -n "${{ steps.current_version.outputs.current_sha }}" ]; then
-          echo "No update needed. Current: ${{ steps.current_version.outputs.current_version }}, Latest: $LATEST_VERSION (sha256 looks valid)"
-          echo "update_needed=false" >> $GITHUB_OUTPUT
-          exit 0
-        fi
+          for branch in "${branches[@]}"; do
+            [ -n "$branch" ] || continue
+            if ! git merge-base --is-ancestor "refs/remotes/origin/$branch" "refs/remotes/origin/$default_branch"; then
+              echo "Keeping $branch (not merged into $default_branch)."
+              continue
+            fi
 
-        RELEASE_ASSET_NAME=$(gh release view "$LATEST_VERSION" -R "${{ env.UPSTREAM_REPO }}" --json assets | jq -r '([.assets[] | select(.name == "server.zip") | .name] + [.assets[] | select(.name | endswith(".zip")) | .name])[0] // empty')
+            open_count="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq 'length')"
+            if [ "$open_count" != '0' ]; then
+              echo "Keeping $branch (open PR exists)."
+              continue
+            fi
 
-        if [ -z "$RELEASE_ASSET_NAME" ]; then
-          echo "No suitable .zip asset found in release $LATEST_VERSION."
-          exit 1
-        fi
+            echo "Deleting merged automation branch $branch"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" >/dev/null
+          done
 
-        URL="https://github.com/${{ env.UPSTREAM_REPO }}/releases/download/${LATEST_VERSION}/${RELEASE_ASSET_NAME}"
+      - name: Update formula from latest upstream release
+        id: update_formula
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/update_formula.sh
 
-        echo "Update needed. Current: ${{ steps.current_version.outputs.current_version }}, Latest: $LATEST_VERSION"
-        echo "url=${URL}" >> $GITHUB_OUTPUT
+      - name: Show formula diff
+        if: steps.update_formula.outputs.update_needed == 'true'
+        run: git diff -- Formula/zotero-pdf2zh.rb
 
-        echo "Downloading asset: $RELEASE_ASSET_NAME"
-        gh release download "$LATEST_VERSION" -R "${{ env.UPSTREAM_REPO }}" -p "$RELEASE_ASSET_NAME" -O server.zip
-        SHA256=$(sha256sum server.zip | cut -d' ' -f1)
-        echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
-        rm -f server.zip
+      - name: Set up Homebrew
+        if: steps.update_formula.outputs.update_needed == 'true'
+        uses: Homebrew/actions/setup-homebrew@master
 
-        # Only replace the first matching top-level url/sha256 (avoid touching future resource blocks).
-        # Use a safe delimiter so URLs containing '/' don't break sed.
-        sed -i "0,/^  url \\\"/{s|^  url \\\".*\\\"|  url \\\"${URL}\\\"|}" Formula/zotero-pdf2zh.rb
-        sed -i "0,/^  sha256 \\\"/{s|^  sha256 \\\".*\\\"|  sha256 \\\"${SHA256}\\\"|}" Formula/zotero-pdf2zh.rb
+      - name: Validate updated formula
+        if: steps.update_formula.outputs.update_needed == 'true'
+        run: ./scripts/smoke_test.sh
 
-        if git diff --quiet; then
-          echo "No changes after attempting update (unexpected)."
-          echo "update_needed=false" >> $GITHUB_OUTPUT
-          exit 0
-        fi
+      - name: Create pull request
+        if: steps.update_formula.outputs.update_needed == 'true'
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: ${{ steps.update_formula.outputs.branch_name }}
+          delete-branch: true
+          add-paths: |
+            Formula/zotero-pdf2zh.rb
+          title: Update zotero-pdf2zh to ${{ steps.update_formula.outputs.latest_version }}
+          commit-message: Update zotero-pdf2zh to ${{ steps.update_formula.outputs.latest_version }}
+          body: |
+            Automated update of `Formula/zotero-pdf2zh.rb` based on the latest upstream release.
+            - Upstream: https://github.com/${{ env.UPSTREAM_REPO }}
+            - Asset: ${{ steps.update_formula.outputs.asset_url }}
+            - SHA256: `${{ steps.update_formula.outputs.sha256 }}`
+            - Validation: `./scripts/smoke_test.sh`
 
-        echo "update_needed=true" >> $GITHUB_OUTPUT
+      - name: Enable auto-merge (squash)
+        if: steps.cpr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --auto --squash "${{ steps.cpr.outputs.pull-request-url }}"
 
-    - name: Create pull request
-      if: steps.update_formula.outputs.update_needed == 'true'
-      id: cpr
-      uses: peter-evans/create-pull-request@v7
-      with:
-        branch: bump-zotero-pdf2zh-${{ steps.update_formula.outputs.latest_version }}
-        delete-branch: true
-        add-paths: |
-          Formula/zotero-pdf2zh.rb
-        title: Update zotero-pdf2zh to ${{ steps.update_formula.outputs.latest_version }}
-        commit-message: Update zotero-pdf2zh to ${{ steps.update_formula.outputs.latest_version }}
-        body: |
-          Automated update of `Formula/zotero-pdf2zh.rb` based on the latest upstream release.
-          - Upstream: https://github.com/${{ env.UPSTREAM_REPO }}
-          - Asset: ${{ steps.update_formula.outputs.url }}
+      - name: Keep scheduled workflows active
+        if: github.event_name == 'schedule' && steps.update_formula.outputs.update_needed != 'true'
+        run: |
+          set -euo pipefail
+          default_branch='${{ github.event.repository.default_branch }}'
+          last_commit_ts="$(git log -1 --format=%ct "origin/$default_branch")"
+          now="$(date +%s)"
+          age_days=$(( (now - last_commit_ts) / 86400 ))
+          echo "Latest default-branch activity is ${age_days} day(s) old."
 
-    - name: Enable auto-merge (squash)
-      if: steps.cpr.outputs.pull-request-number != ''
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        gh pr merge --auto --squash "${{ steps.cpr.outputs.pull-request-url }}"
+          if [ "$age_days" -lt 45 ]; then
+            echo 'Recent repository activity detected; keepalive not needed.'
+            exit 0
+          fi
+
+          mkdir -p "$(dirname "$KEEPALIVE_FILE")"
+          printf 'Last automated keepalive: %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >"$KEEPALIVE_FILE"
+
+          if git diff --quiet -- "$KEEPALIVE_FILE"; then
+            echo 'Keepalive file already up to date.'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$KEEPALIVE_FILE"
+          git commit -m 'chore: keep scheduled workflows active'
+          git push origin "HEAD:${default_branch}"
