@@ -5,7 +5,7 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-1200}"
 
 formula_path="${FORMULA_PATH:-./Formula/zotero-pdf2zh.rb}"
-tap_name="${TAP_NAME:-a2394797795/homebrew-formula}"
+tap_name="${TAP_NAME:-local/zotero-pdf2zh-smoke}"
 formula_name="${FORMULA_NAME:-zotero-pdf2zh}"
 port="${ZOTERO_PDF2ZH_TEST_PORT:-47701}"
 health_url="http://127.0.0.1:${port}/health"
@@ -19,6 +19,9 @@ cleanup() {
     kill "$server_pid" >/dev/null 2>&1 || true
     wait "$server_pid" >/dev/null 2>&1 || true
   fi
+  if brew tap | grep -qx "$tap_name"; then
+    brew untap "$tap_name" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
@@ -26,7 +29,9 @@ tap_repo="$(brew --repository "$tap_name" 2>/dev/null || true)"
 if [ -n "$tap_repo" ] && [ -e "$tap_repo" ]; then
   brew untap "$tap_name"
 fi
-brew tap "$tap_name" "$repo_root"
+brew tap-new "$tap_name"
+tap_repo="$(brew --repository "$tap_name")"
+cp "$formula_path" "$tap_repo/Formula/${formula_name}.rb"
 
 brew reinstall "$tap_name/$formula_name"
 brew test "$tap_name/$formula_name"
