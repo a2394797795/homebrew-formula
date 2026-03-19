@@ -1,13 +1,15 @@
-# Homebrew Tap: zotero-pdf2zh
+# zotero-pdf2zh Homebrew Tap
 
-这个仓库把上游 [`guaguastandup/zotero-pdf2zh`](https://github.com/guaguastandup/zotero-pdf2zh) 的 `server.zip` 打包成一个可通过 Homebrew 安装和管理的本地服务。
+这个仓库提供 `zotero-pdf2zh` 的 Homebrew 安装方式，并补上日常运行、依赖更新和自动维护所需要的包装逻辑。
 
-边界很明确：
+上游项目：<https://github.com/guaguastandup/zotero-pdf2zh>
 
-- 不改上游源码，只做 Homebrew 适配
-- 配置、输出、虚拟环境都放在 `$(brew --prefix)/var/zotero-pdf2zh`
-- 版本更新尽量自动化，坏更新必须在 CI 被拦下
-- 日常启动尽量稳定，不在每次启动时强制联网升级依赖
+这个仓库只做两件事：
+
+- 把上游 release 打包成可安装的 Homebrew formula
+- 让版本更新、基础验证和分支清理可以自动执行
+
+这个仓库不改上游业务逻辑，也不维护 Zotero 插件本身。
 
 ## 安装
 
@@ -16,23 +18,59 @@ brew tap a2394797795/homebrew-formula
 brew install zotero-pdf2zh
 ```
 
-安装后可执行文件在：
+安装完成后会得到两个命令：
 
-- `$(brew --prefix)/bin/zotero-pdf2zh`
-- `$(brew --prefix)/bin/zotero-pdf2zh-update`
+- `zotero-pdf2zh`
+- `zotero-pdf2zh-update`
 
-## 用户端命令
+## 快速开始
 
-这个 tap 实际提供的命令只有 2 个：
+安装后，先启动服务：
 
-### 1) `zotero-pdf2zh`
+```bash
+brew services start zotero-pdf2zh
+```
 
-启动本地服务。它是上游 `server.py` 的包装器，会保证：
+检查服务是否正常：
 
-- 使用固定的持久化目录
-- 使用 `var/zotero-pdf2zh/venv`
-- 正常启动时不强制更新依赖
-- 首次安装或升级后，按 marker 触发一次依赖刷新尝试
+```bash
+curl -fsS http://127.0.0.1:47700/health
+```
+
+如果需要前台运行，使用：
+
+```bash
+zotero-pdf2zh --port 47700 --check_update false
+```
+
+## 日常使用
+
+### 启动、停止、重启
+
+```bash
+brew services start zotero-pdf2zh
+brew services stop zotero-pdf2zh
+brew services restart zotero-pdf2zh
+```
+
+### 查看状态和日志
+
+```bash
+brew services list
+
+tail -n 200 "$(brew --prefix)/var/log/zotero-pdf2zh.log"
+```
+
+### 用户命令
+
+#### `zotero-pdf2zh`
+
+用于启动本地服务。它会：
+
+- 固定使用 `$(brew --prefix)/var/zotero-pdf2zh` 作为数据目录
+- 固定使用 `var/zotero-pdf2zh/venv` 作为 Python 虚拟环境
+- 正常启动时不强制联网升级依赖
+- 在安装或升级后，根据 marker 文件触发一次依赖刷新
 
 常见用法：
 
@@ -40,9 +78,9 @@ brew install zotero-pdf2zh
 zotero-pdf2zh --port 47700 --check_update false
 ```
 
-### 2) `zotero-pdf2zh-update`
+#### `zotero-pdf2zh-update`
 
-只负责刷新 Python 依赖，当前核心是 `pdf2zh_next`。
+用于刷新虚拟环境中的 Python 依赖，主要是 `pdf2zh_next`。
 
 常见用法：
 
@@ -52,111 +90,80 @@ zotero-pdf2zh-update --no-restart
 zotero-pdf2zh-update --restart
 ```
 
-行为：
+执行内容包括：
 
-- 升级依赖
-- 做 `pip check` 和导入健康检查
-- 校验 `server.py --help`
-- 失败时尝试回滚
+- 更新依赖
+- 执行 `pip check`
+- 验证 `pdf2zh_next` 可导入
+- 验证 `server.py --help`
+- 更新失败时尝试回滚
 - 只有依赖版本变化时才重启服务
 
-## 哪些命令算冗余？
+## 配置和文件位置
 
-不冗余的只有两类：
+### 程序文件
 
-- tap 自己提供的命令：`zotero-pdf2zh`、`zotero-pdf2zh-update`
-- Homebrew 通用管理命令：`brew install`、`brew upgrade`、`brew services ...`
-
-其中：
-
-- `brew services start/stop/restart zotero-pdf2zh` 不是本仓库自定义命令，而是 Homebrew 的标准服务管理入口
-- `zotero-pdf2zh-update --restart` 和 `brew services restart zotero-pdf2zh` 目标有重叠，但不完全重复：前者是“先更新依赖，再按需重启”，后者是“直接重启服务”
-
-所以当前命令面是精简的，没有明显需要再删的重复命令。
-
-## 日常使用
-
-### 启动 / 停止 / 重启
-
-```bash
-brew services start zotero-pdf2zh
-brew services stop zotero-pdf2zh
-brew services restart zotero-pdf2zh
-```
-
-### 查看状态 / 日志
-
-```bash
-brew services list
-
-tail -n 200 "$(brew --prefix)/var/log/zotero-pdf2zh.log"
-```
-
-### 前台运行
-
-```bash
-zotero-pdf2zh --port 47700 --check_update false
-```
-
-## 文件位置
-
-### 只读程序本体
+Homebrew 安装内容位于：
 
 ```bash
 $(brew --prefix)/Cellar/zotero-pdf2zh/<version>/libexec
 ```
 
-### 可写数据目录
+这里是只读安装目录，不建议手动修改。
+
+### 数据目录
+
+运行时数据位于：
 
 ```bash
 $(brew --prefix)/var/zotero-pdf2zh
 ```
 
-里面主要有：
+主要内容包括：
 
-- `config/`：配置
+- `config/`：配置文件
 - `translated/`：输出目录
 - `venv/`：Python 虚拟环境
-- `needs-deps-update`：安装/升级后的一次性依赖刷新标记
+- `needs-deps-update`：安装或升级后的一次性依赖刷新标记
 
-### 日志
+### 日志文件
 
 ```bash
 $(brew --prefix)/var/log/zotero-pdf2zh.log
 ```
 
-## 配置说明
+### 配置文件
 
-推荐直接在 Zotero 插件里配置，插件会把设置写入：
+推荐直接通过 Zotero 插件写入配置。常见文件位置：
 
 - `$(brew --prefix)/var/zotero-pdf2zh/config/config.json`
 - `$(brew --prefix)/var/zotero-pdf2zh/config/config.toml`
 - `$(brew --prefix)/var/zotero-pdf2zh/config/venv.json`
 
-注意：不要在可写配置目录里保留 `*.example` 文件。上游会把它们当成模板源，可能在启动时覆盖真实配置。
+有一个细节需要注意：不要在可写配置目录里保留 `*.example` 文件。上游启动时会把它们当成模板，可能覆盖真实配置。
 
-检查：
+检查方式：
 
 ```bash
 ls -1 "$(brew --prefix)/var/zotero-pdf2zh/config" | rg '\.example$' || true
 ```
 
-清理：
+清理方式：
 
 ```bash
 rm -f "$(brew --prefix)/var/zotero-pdf2zh/config/"*.example
 brew services restart zotero-pdf2zh
 ```
 
-## 更新怎么启动
+## 更新与验证
 
-更新分两层。
+这里有两类更新。
 
-### 1) 更新 Homebrew Formula 版本
+### 1. 更新 formula 版本
 
-这是上游 `zotero-pdf2zh` 的版本更新，例如 `3.x -> 4.x`。
+这一层对应上游 release 版本，例如 `3.x -> 4.x`。
 
-触发方式：
+执行方式：
 
 ```bash
 brew update
@@ -164,102 +171,85 @@ brew upgrade zotero-pdf2zh
 brew services restart zotero-pdf2zh
 ```
 
-如果你想强制重装当前 formula：
+如果你要强制重装当前版本：
 
 ```bash
 brew reinstall zotero-pdf2zh
 brew services restart zotero-pdf2zh
 ```
 
-### 2) 更新 Python 依赖
+### 2. 更新 Python 依赖
 
-这是虚拟环境里的依赖更新，例如 `pdf2zh_next`。
+这一层对应虚拟环境中的依赖更新，例如 `pdf2zh_next`。
 
-触发方式：
+执行方式：
 
 ```bash
 zotero-pdf2zh-update
 ```
 
-如果你只想更新依赖、暂时不重启：
+如果只更新依赖，不立即重启：
 
 ```bash
 zotero-pdf2zh-update --no-restart
 ```
 
-## 如何在本地验证更新成功
+### 验证更新是否成功
 
-建议按下面的顺序验，能同时覆盖 formula、本体、服务和依赖。
+建议按下面顺序检查。
 
-### A. 验证 Homebrew Formula 版本
+#### A. 看 formula 版本
 
 ```bash
 brew info zotero-pdf2zh
 brew list --versions zotero-pdf2zh
-```
-
-还可以直接看安装源：
-
-```bash
 ruby -e 'f = Formula["zotero-pdf2zh"]; puts f.stable.url'
 ```
 
-### B. 验证当前 Cellar 版本
+#### B. 看当前 Cellar 版本
 
 ```bash
 ls -1 "$(brew --cellar zotero-pdf2zh)"
 ```
 
-### C. 验证服务是否正常
+#### C. 看服务是否可用
 
 ```bash
 brew services restart zotero-pdf2zh
 curl -fsS http://127.0.0.1:47700/health
 ```
 
-预期应该返回类似 JSON，而不是 404。
+正常情况下应该返回 JSON，而不是报错或 404。
 
-### D. 验证依赖是否更新
-
-先执行：
+#### D. 看依赖是否已经更新
 
 ```bash
 zotero-pdf2zh-update --no-restart
-```
 
-然后查看虚拟环境里的关键包：
-
-```bash
 VENV="$(brew --prefix)/var/zotero-pdf2zh/venv"
-"$VENV/bin/python" -m pip list
 "$VENV/bin/python" -m pip show pdf2zh_next
 "$VENV/bin/python" -m pip check
 ```
 
-如果你想保存一份完整依赖快照：
+如果你要看完整依赖列表：
 
 ```bash
 VENV="$(brew --prefix)/var/zotero-pdf2zh/venv"
 "$VENV/bin/python" -m pip freeze | sort
 ```
 
-### E. 验证当前实际运行的是哪一套程序
+#### E. 看当前命令实际指向哪里
 
 ```bash
 which zotero-pdf2zh
 readlink "$(which zotero-pdf2zh)" || true
-```
-
-以及：
-
-```bash
 brew --prefix zotero-pdf2zh
 brew --cellar zotero-pdf2zh
 ```
 
-## 一个推荐的本地验收流程
+### 常用验收命令
 
-如果你刚执行完升级，建议直接跑这一组：
+如果你刚执行过升级，通常跑下面这一组就够了：
 
 ```bash
 brew update
@@ -283,32 +273,58 @@ brew services stop zotero-pdf2zh
 brew uninstall zotero-pdf2zh
 ```
 
-如果连配置、输出、虚拟环境一起删：
+如果还要删除配置、输出和虚拟环境：
 
 ```bash
 rm -rf "$(brew --prefix)/var/zotero-pdf2zh"
 ```
 
-## 自动化维护说明
+## 常见问题
 
-主流程在 `.github/workflows/update-zotero-pdf2zh.yml`：
+### `brew reinstall` 提示 keg 被占用
 
-- 每天检查上游 stable release
-- 自动更新 `Formula/zotero-pdf2zh.rb`
-- 自动执行 `scripts/smoke_test.sh`
-- 自动建 PR
+先停服务，再重装：
+
+```bash
+brew services stop zotero-pdf2zh
+brew reinstall zotero-pdf2zh
+```
+
+### 启动后提示 `API key is required`
+
+一般先查这三项：
+
+1. `config/` 目录里是否残留 `*.example`
+2. Zotero 插件里是否已经保存对应引擎的 key
+3. 服务是否已经重启
+
+可以先直接执行：
+
+```bash
+rm -f "$(brew --prefix)/var/zotero-pdf2zh/config/"*.example
+brew services restart zotero-pdf2zh
+```
+
+## 维护者说明
+
+### 自动化流程
+
+主流程在 `.github/workflows/update-zotero-pdf2zh.yml`，负责：
+
+- 定时检查上游最新 stable release
+- 更新 `Formula/zotero-pdf2zh.rb`
+- 执行 `scripts/smoke_test.sh`
+- 创建或更新 PR
 - 自动 squash merge
-- 自动清理 `bump-zotero-pdf2zh-*` 分支
+- 清理自动生成的 bump 分支
 
-兜底清理在 `.github/workflows/cleanup-bump-branches.yml`：
+兜底流程在 `.github/workflows/cleanup-bump-branches.yml`，只做一件事：
 
-- 只有在 PR 关闭后才触发
-- 只负责“如果分支还没删掉，就再删一次”
-- 已经是纯兜底，不承担主流程逻辑
+- PR 合并后，如果 bump 分支还存在，就再删一次
 
-## 维护者：如何手动触发自动更新闭环
+### 手动触发更新
 
-如果你要手动触发仓库自动更新，而不是等定时任务：
+如果你不想等定时任务，可以手动触发：
 
 ```bash
 gh workflow run 'Update zotero-pdf2zh' -R a2394797795/homebrew-formula --ref main
@@ -323,19 +339,19 @@ gh run watch -R a2394797795/homebrew-formula <run-id>
 - `Create pull request`
 - `Merge pull request`
 
-如果是“有新版本”的场景，成功后应该看到：
+有新版本时，预期结果是：
 
-- `Formula/zotero-pdf2zh.rb` 被自动改到新 release
+- `Formula/zotero-pdf2zh.rb` 被更新
 - 自动创建并合并 `bump-zotero-pdf2zh-*` PR
-- 远端最终只保留 `main`，不残留 bump 分支
+- 远端不残留 bump 分支
 
-如果是“没有新版本”的场景，成功后应该看到：
+没有新版本时，预期结果是：
 
-- workflow 直接结束
+- workflow 正常结束
 - 不创建新 PR
-- 不修改 `Formula/zotero-pdf2zh.rb`
+- `Formula/zotero-pdf2zh.rb` 不变化
 
-## 维护者：如何本地验证自动化逻辑
+### 本地验证
 
 先准备 GitHub CLI 凭证：
 
@@ -351,51 +367,33 @@ gh auth status
 ./scripts/smoke_test.sh
 ```
 
-含义分别是：
+这两个脚本分别负责：
 
-- `./scripts/update_formula.sh`：读取上游最新 release，更新 `Formula/zotero-pdf2zh.rb`
-- `./scripts/smoke_test.sh`：把当前 formula 放进临时 tap，真实安装、启动服务、检查 `/health`
+- 从上游最新 release 更新 formula
+- 用临时 tap 真实安装并检查 `/health`
 
-如果你只想看这次会不会改 formula，可以先执行：
+如果你只想先看 formula 会不会变化：
 
 ```bash
 git diff -- Formula/zotero-pdf2zh.rb
 ```
 
-本地验证通过后，再看：
+本地验证后，建议再看：
 
 ```bash
 git status -sb
 git diff -- Formula/zotero-pdf2zh.rb
 ```
 
-预期：
+预期是：
 
-- 上游没新版本时：没有 diff
-- 上游有新版本时：只改 `Formula/zotero-pdf2zh.rb`
+- 上游没新版本时，没有 diff
+- 上游有新版本时，只改 `Formula/zotero-pdf2zh.rb`
 
-## 常见问题
+### 仓库关键文件
 
-### `brew reinstall` 时报 keg 被占用
-
-先停服务再重装：
-
-```bash
-brew services stop zotero-pdf2zh
-brew reinstall zotero-pdf2zh
-```
-
-### 翻译时报 `API key is required`
-
-优先排查：
-
-1. `config/` 里是否残留 `*.example`
-2. Zotero 插件里是否真的保存了对应引擎的 key
-3. 服务是否已经重启
-
-可直接执行：
-
-```bash
-rm -f "$(brew --prefix)/var/zotero-pdf2zh/config/"*.example
-brew services restart zotero-pdf2zh
-```
+- `Formula/zotero-pdf2zh.rb`：Homebrew formula 和服务包装逻辑
+- `scripts/update_formula.sh`：根据上游 release 更新 formula
+- `scripts/smoke_test.sh`：临时安装并做基本健康检查
+- `.github/workflows/update-zotero-pdf2zh.yml`：主更新流程
+- `.github/workflows/cleanup-bump-branches.yml`：分支清理兜底流程
