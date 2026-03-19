@@ -12,7 +12,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Delete merged automation branch
+      - name: Delete merged automation branch if it still exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${{ github.event.pull_request.head.ref }}"
+        run: |
+          set -euo pipefail
+          branch='${{ github.event.pull_request.head.ref }}'
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" >/dev/null 2>&1 || true
