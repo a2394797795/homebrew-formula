@@ -306,6 +306,74 @@ rm -rf "$(brew --prefix)/var/zotero-pdf2zh"
 - 只负责“如果分支还没删掉，就再删一次”
 - 已经是纯兜底，不承担主流程逻辑
 
+## 维护者：如何手动触发自动更新闭环
+
+如果你要手动触发仓库自动更新，而不是等定时任务：
+
+```bash
+gh workflow run 'Update zotero-pdf2zh' -R a2394797795/homebrew-formula --ref main
+gh run list -R a2394797795/homebrew-formula --limit 5
+gh run watch -R a2394797795/homebrew-formula <run-id>
+```
+
+重点看这几个阶段：
+
+- `Update formula from latest upstream release`
+- `Validate updated formula`
+- `Create pull request`
+- `Merge pull request`
+
+如果是“有新版本”的场景，成功后应该看到：
+
+- `Formula/zotero-pdf2zh.rb` 被自动改到新 release
+- 自动创建并合并 `bump-zotero-pdf2zh-*` PR
+- 远端最终只保留 `main`，不残留 bump 分支
+
+如果是“没有新版本”的场景，成功后应该看到：
+
+- workflow 直接结束
+- 不创建新 PR
+- 不修改 `Formula/zotero-pdf2zh.rb`
+
+## 维护者：如何本地验证自动化逻辑
+
+先准备 GitHub CLI 凭证：
+
+```bash
+export GH_TOKEN="$(gh auth token)"
+gh auth status
+```
+
+然后在仓库根目录执行：
+
+```bash
+./scripts/update_formula.sh
+./scripts/smoke_test.sh
+```
+
+含义分别是：
+
+- `./scripts/update_formula.sh`：读取上游最新 release，更新 `Formula/zotero-pdf2zh.rb`
+- `./scripts/smoke_test.sh`：把当前 formula 放进临时 tap，真实安装、启动服务、检查 `/health`
+
+如果你只想看这次会不会改 formula，可以先执行：
+
+```bash
+git diff -- Formula/zotero-pdf2zh.rb
+```
+
+本地验证通过后，再看：
+
+```bash
+git status -sb
+git diff -- Formula/zotero-pdf2zh.rb
+```
+
+预期：
+
+- 上游没新版本时：没有 diff
+- 上游有新版本时：只改 `Formula/zotero-pdf2zh.rb`
+
 ## 常见问题
 
 ### `brew reinstall` 时报 keg 被占用
