@@ -66,13 +66,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/update_formula.sh
 
-      - name: Show formula diff
-        if: steps.update_formula.outputs.update_needed == 'true'
-        run: git diff -- Formula/zotero-pdf2zh.rb
-
       - name: Set up Homebrew
         if: steps.update_formula.outputs.update_needed == 'true'
         uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Reapply formula update after Homebrew setup
+        if: steps.update_formula.outputs.update_needed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/update_formula.sh
+
+      - name: Show formula diff
+        if: steps.update_formula.outputs.update_needed == 'true'
+        run: git diff -- Formula/zotero-pdf2zh.rb
 
       - name: Validate updated formula
         if: steps.update_formula.outputs.update_needed == 'true'
