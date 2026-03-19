@@ -31,7 +31,8 @@ jobs:
         run: |
           set -euo pipefail
           default_branch='${{ github.event.repository.default_branch }}'
-          git fetch origin "$default_branch" '+refs/heads/bump-zotero-pdf2zh-*:+refs/remotes/origin/bump-zotero-pdf2zh-*' || true
+          git fetch origin "$default_branch" || true
+          git fetch origin '+refs/heads/bump-zotero-pdf2zh-*:refs/remotes/origin/bump-zotero-pdf2zh-*' || true
 
           mapfile -t branches < <(
             git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/bump-zotero-pdf2zh-*' | sed 's#^origin/##'

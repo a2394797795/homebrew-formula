@@ -76,6 +76,7 @@ formula_path, asset_url, asset_sha = ARGV
 text = File.read(formula_path)
 updated = text.sub(/^  url ".*"$/, "  url \"#{asset_url}\"")
 updated = updated.sub(/^  sha256 ".*"$/, "  sha256 \"#{asset_sha}\"")
+updated = updated.sub(/^  revision \d+\n/, "")
 if updated == text
   warn "Formula update produced no changes."
   exit 1

@@ -2,24 +2,26 @@
 set -euo pipefail
 
 export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_INSTALL_CLEANUP=1
 export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-1200}"
 
 formula_path="${FORMULA_PATH:-./Formula/zotero-pdf2zh.rb}"
 tap_name="${TAP_NAME:-local/zotero-pdf2zh-smoke}"
 formula_name="${FORMULA_NAME:-zotero-pdf2zh-smoke}"
+formula_class_name="${FORMULA_CLASS_NAME:-$(ruby -e 'puts ARGV.fetch(0).split(/[^a-zA-Z0-9]+/).reject(&:empty?).map(&:capitalize).join' "$formula_name")}"
 command_name="${COMMAND_NAME:-zotero-pdf2zh}"
 port="${ZOTERO_PDF2ZH_TEST_PORT:-47701}"
 health_url="http://127.0.0.1:${port}/health"
 prefix="$(brew --prefix)"
 log_file="${RUNNER_TEMP:-/tmp}/zotero-pdf2zh-smoke.log"
 marker="${prefix}/var/zotero-pdf2zh/needs-deps-update"
-repo_root="$(cd "$(dirname "$formula_path")/.." && pwd)"
 
 cleanup() {
   if [ -n "${server_pid:-}" ] && kill -0 "$server_pid" >/dev/null 2>&1; then
     kill "$server_pid" >/dev/null 2>&1 || true
     wait "$server_pid" >/dev/null 2>&1 || true
   fi
+  brew uninstall --force "$formula_name" >/dev/null 2>&1 || true
   if brew tap | grep -qx "$tap_name"; then
     brew untap "$tap_name" >/dev/null 2>&1 || true
   fi
@@ -36,14 +38,27 @@ brew tap-new "$tap_name"
 tap_repo="$(brew --repository "$tap_name")"
 temp_formula="$tap_repo/Formula/${formula_name}.rb"
 cp "$formula_path" "$temp_formula"
-ruby - "$temp_formula" <<'RUBY'
+ruby - "$temp_formula" "$formula_class_name" <<'RUBY'
 formula_path = ARGV.fetch(0)
+formula_class_name = ARGV.fetch(1)
 text = File.read(formula_path)
-text.sub!(/^class\s+ZoteroPdf2zh\s+<\s+Formula$/, "class ZoteroPdf2zhSmoke < Formula")
+unless text.sub!(/^class\s+\S+\s+<\s+Formula$/, "class #{formula_class_name} < Formula")
+  warn "Unable to rewrite formula class name for smoke test"
+  exit 1
+end
 File.write(formula_path, text)
 RUBY
 
-brew reinstall "$tap_name/$formula_name"
+echo "Smoke-test formula:"
+sed -n '1,12p' "$temp_formula"
+brew info --json=v2 "$tap_name/$formula_name" | ruby -rjson -e '
+  info = JSON.parse(STDIN.read).fetch("formulae").fetch(0)
+  puts "Resolved version: #{info.dig("versions", "stable")}"
+  puts "Resolved URL: #{info.dig("urls", "stable", "url")}"
+'
+
+brew uninstall --force "$formula_name" >/dev/null 2>&1 || true
+brew install "$tap_name/$formula_name"
 brew test "$tap_name/$formula_name"
 rm -f "$marker"
 
