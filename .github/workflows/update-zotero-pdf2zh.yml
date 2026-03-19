@@ -8,6 +8,7 @@ on:
 env:
   UPSTREAM_REPO: guaguastandup/zotero-pdf2zh
   KEEPALIVE_FILE: .github/workflow-keepalive
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: update-zotero-pdf2zh
@@ -16,12 +17,16 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
       pull-requests: write
+    env:
+      HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HOMEBREW_NO_ANALYTICS: 1
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -73,15 +78,28 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/update_formula.sh
 
-      - name: Set up Homebrew
-        if: steps.update_formula.outputs.update_needed == 'true'
-        uses: Homebrew/actions/setup-homebrew@master
-
-      - name: Reapply formula update after Homebrew setup
+      - name: Install Homebrew
         if: steps.update_formula.outputs.update_needed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./scripts/update_formula.sh
+          NONINTERACTIVE: 1
+        run: |
+          set -euo pipefail
+          if ! command -v brew >/dev/null 2>&1; then
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          fi
+
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          {
+            echo "PATH=$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin:$PATH"
+            echo "HOMEBREW_PREFIX=$HOMEBREW_PREFIX"
+            echo "HOMEBREW_CELLAR=$HOMEBREW_CELLAR"
+            echo "HOMEBREW_REPOSITORY=$HOMEBREW_REPOSITORY"
+          } >> "$GITHUB_ENV"
+          {
+            echo "$HOMEBREW_PREFIX/bin"
+            echo "$HOMEBREW_PREFIX/sbin"
+          } >> "$GITHUB_PATH"
+          brew --version
 
       - name: Show formula diff
         if: steps.update_formula.outputs.update_needed == 'true'
@@ -94,7 +112,7 @@ jobs:
       - name: Create pull request
         if: steps.update_formula.outputs.update_needed == 'true'
         id: cpr
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: ${{ steps.update_formula.outputs.branch_name }}
           delete-branch: true

@@ -27,23 +27,21 @@ current_version="$(ruby -e 'text = File.read(ARGV[0]); match = text.match(%r{rel
 current_sha="$(ruby -e 'text = File.read(ARGV[0]); match = text.match(/^  sha256 \"([0-9a-f]{64})\"/); puts(match ? match[1] : "")' "$formula_path")"
 zero_sha="0000000000000000000000000000000000000000000000000000000000000000"
 
-releases_json="$(gh api "repos/${upstream_repo}/releases?per_page=20")"
-latest_version="$(jq -r '[.[] | select((.draft | not) and (.prerelease | not))] | first | .tag_name // empty' <<<"$releases_json")"
+if ! release_json="$(gh api "repos/${upstream_repo}/releases/latest")"; then
+  echo "No stable upstream release found." >&2
+  exit 1
+fi
+
+latest_version="$(jq -r '.tag_name // empty' <<<"$release_json")"
 
 if [ -z "$latest_version" ]; then
   echo "No stable upstream release found." >&2
   exit 1
 fi
 
-release_json="$(jq -c --arg version "$latest_version" '.[] | select(.tag_name == $version)' <<<"$releases_json" | head -n 1)"
-if [ -z "$release_json" ]; then
-  echo "Unable to locate release payload for ${latest_version}." >&2
-  exit 1
-fi
-
-asset_name="$(jq -r '([.assets[] | select(.name == "server.zip")] + [.assets[] | select(.name | endswith(".zip"))])[0].name // empty' <<<"$release_json")"
-asset_url="$(jq -r --arg asset_name "$asset_name" '.assets[] | select(.name == $asset_name) | .browser_download_url // empty' <<<"$release_json")"
-asset_digest="$(jq -r --arg asset_name "$asset_name" '.assets[] | select(.name == $asset_name) | .digest // empty' <<<"$release_json")"
+asset_name="$(jq -r '([.assets[]? | select(.name == "server.zip")] + [.assets[]? | select(.name | endswith(".zip"))])[0].name // empty' <<<"$release_json")"
+asset_url="$(jq -r --arg asset_name "$asset_name" '.assets[]? | select(.name == $asset_name) | .browser_download_url // empty' <<<"$release_json")"
+asset_digest="$(jq -r --arg asset_name "$asset_name" '.assets[]? | select(.name == $asset_name) | .digest // empty' <<<"$release_json")"
 
 if [ -z "$asset_name" ] || [ -z "$asset_url" ]; then
   echo "Release ${latest_version} does not expose a usable zip asset." >&2
