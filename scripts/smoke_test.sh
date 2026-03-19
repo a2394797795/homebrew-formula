@@ -29,6 +29,8 @@ tap_repo="$(brew --repository "$tap_name" 2>/dev/null || true)"
 if [ -n "$tap_repo" ] && [ -e "$tap_repo" ]; then
   brew untap "$tap_name"
 fi
+git config --global user.name "${GIT_AUTHOR_NAME:-github-actions[bot]}"
+git config --global user.email "${GIT_AUTHOR_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
 brew tap-new "$tap_name"
 tap_repo="$(brew --repository "$tap_name")"
 cp "$formula_path" "$tap_repo/Formula/${formula_name}.rb"
