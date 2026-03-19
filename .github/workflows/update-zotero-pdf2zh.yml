@@ -45,14 +45,21 @@ jobs:
 
           for branch in "${branches[@]}"; do
             [ -n "$branch" ] || continue
-            if ! git merge-base --is-ancestor "refs/remotes/origin/$branch" "refs/remotes/origin/$default_branch"; then
-              echo "Keeping $branch (not merged into $default_branch)."
-              continue
-            fi
-
             open_count="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq 'length')"
             if [ "$open_count" != '0' ]; then
               echo "Keeping $branch (open PR exists)."
+              continue
+            fi
+
+            closed_count="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=closed&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq 'length')"
+            if [ "$closed_count" != '0' ]; then
+              echo "Deleting $branch (PR already closed)."
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" >/dev/null
+              continue
+            fi
+
+            if ! git merge-base --is-ancestor "refs/remotes/origin/$branch" "refs/remotes/origin/$default_branch"; then
+              echo "Keeping $branch (not merged into $default_branch and no closed PR)."
               continue
             fi
 
@@ -115,6 +122,12 @@ jobs:
             gh pr merge --squash --delete-branch "$pr"
           else
             gh pr merge --auto --squash "$pr"
+          fi
+
+          merged_at="$(gh pr view "$pr" --json mergedAt --jq '.mergedAt // empty')"
+          if [ -n "$merged_at" ]; then
+            branch="$(gh pr view "$pr" --json headRefName --jq '.headRefName')"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}" >/dev/null 2>&1 || true
           fi
 
       - name: Keep scheduled workflows active
