@@ -6,7 +6,8 @@ export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-1200}"
 
 formula_path="${FORMULA_PATH:-./Formula/zotero-pdf2zh.rb}"
 tap_name="${TAP_NAME:-local/zotero-pdf2zh-smoke}"
-formula_name="${FORMULA_NAME:-zotero-pdf2zh}"
+formula_name="${FORMULA_NAME:-zotero-pdf2zh-smoke}"
+command_name="${COMMAND_NAME:-zotero-pdf2zh}"
 port="${ZOTERO_PDF2ZH_TEST_PORT:-47701}"
 health_url="http://127.0.0.1:${port}/health"
 prefix="$(brew --prefix)"
@@ -33,13 +34,20 @@ git config --global user.name "${GIT_AUTHOR_NAME:-github-actions[bot]}"
 git config --global user.email "${GIT_AUTHOR_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
 brew tap-new "$tap_name"
 tap_repo="$(brew --repository "$tap_name")"
-cp "$formula_path" "$tap_repo/Formula/${formula_name}.rb"
+temp_formula="$tap_repo/Formula/${formula_name}.rb"
+cp "$formula_path" "$temp_formula"
+ruby - "$temp_formula" <<'RUBY'
+formula_path = ARGV.fetch(0)
+text = File.read(formula_path)
+text.sub!(/^class\s+ZoteroPdf2zh\s+<\s+Formula$/, "class ZoteroPdf2zhSmoke < Formula")
+File.write(formula_path, text)
+RUBY
 
 brew reinstall "$tap_name/$formula_name"
 brew test "$tap_name/$formula_name"
 rm -f "$marker"
 
-"$formula_name" --port "$port" --check_update false >"$log_file" 2>&1 &
+"$command_name" --port "$port" --check_update false >"$log_file" 2>&1 &
 server_pid=$!
 
 for _ in $(seq 1 180); do
