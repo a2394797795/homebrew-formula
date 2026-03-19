@@ -5,11 +5,14 @@ export HOMEBREW_NO_AUTO_UPDATE=1
 export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-1200}"
 
 formula_path="${FORMULA_PATH:-./Formula/zotero-pdf2zh.rb}"
+tap_name="${TAP_NAME:-a2394797795/homebrew-formula}"
+formula_name="${FORMULA_NAME:-zotero-pdf2zh}"
 port="${ZOTERO_PDF2ZH_TEST_PORT:-47701}"
 health_url="http://127.0.0.1:${port}/health"
 prefix="$(brew --prefix)"
 log_file="${RUNNER_TEMP:-/tmp}/zotero-pdf2zh-smoke.log"
 marker="${prefix}/var/zotero-pdf2zh/needs-deps-update"
+repo_root="$(cd "$(dirname "$formula_path")/.." && pwd)"
 
 cleanup() {
   if [ -n "${server_pid:-}" ] && kill -0 "$server_pid" >/dev/null 2>&1; then
@@ -19,11 +22,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
-brew install --formula "$formula_path"
-brew test zotero-pdf2zh
+mkdir -p "$(brew --repository "$tap_name" 2>/dev/null || true)"
+if ! brew tap | grep -qx "$tap_name"; then
+  brew tap "$tap_name" "$repo_root"
+else
+  tap_repo="$(brew --repository "$tap_name")"
+  rm -rf "$tap_repo"
+  mkdir -p "$(dirname "$tap_repo")"
+  ln -s "$repo_root" "$tap_repo"
+fi
+
+brew reinstall "$tap_name/$formula_name"
+brew test "$tap_name/$formula_name"
 rm -f "$marker"
 
-zotero-pdf2zh --port "$port" --check_update false >"$log_file" 2>&1 &
+"$formula_name" --port "$port" --check_update false >"$log_file" 2>&1 &
 server_pid=$!
 
 for _ in $(seq 1 180); do
