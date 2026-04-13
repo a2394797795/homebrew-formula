@@ -134,12 +134,40 @@ jobs:
         run: |
           set -euo pipefail
           pr="${{ steps.cpr.outputs.pull-request-url }}"
+          base_branch="$(gh pr view "$pr" --json baseRefName --jq '.baseRefName')"
           state="$(gh pr view "$pr" --json mergeStateStatus --jq '.mergeStateStatus')"
 
-          if [ "$state" = "CLEAN" ]; then
-            gh pr merge --squash --delete-branch "$pr"
+          if gh api "repos/${GITHUB_REPOSITORY}/branches/${base_branch}/protection" >/dev/null 2>&1; then
+            branch_protected='true'
           else
-            gh pr merge --auto --squash "$pr"
+            branch_protected='false'
+          fi
+
+          echo "mergeStateStatus=${state}"
+          echo "branchProtected=${branch_protected}"
+
+          if [ "$branch_protected" = 'true' ]; then
+            if [ "$state" = "CLEAN" ]; then
+              gh pr merge --squash --delete-branch "$pr"
+            else
+              gh pr merge --auto --squash "$pr"
+            fi
+          else
+            attempts=0
+            max_attempts=6
+
+            until gh pr merge --squash --delete-branch "$pr"; do
+              attempts=$((attempts + 1))
+              state="$(gh pr view "$pr" --json mergeStateStatus --jq '.mergeStateStatus')"
+
+              if [ "$attempts" -ge "$max_attempts" ]; then
+                echo "Direct merge failed after ${attempts} attempts (mergeStateStatus=${state})."
+                exit 1
+              fi
+
+              echo "Direct merge not ready yet (attempt ${attempts}/${max_attempts}, mergeStateStatus=${state}); retrying..."
+              sleep 5
+            done
           fi
 
           merged_at="$(gh pr view "$pr" --json mergedAt --jq '.mergedAt // empty')"
