@@ -372,6 +372,12 @@ gh auth status
 - 从上游最新 release 更新 formula
 - 用临时 tap 真实安装并检查 `/health`
 
+Keepalive 的离线回归测试不访问网络：
+
+```bash
+./tests/keep_workflows_active_test.sh
+```
+
 如果你只想先看 formula 会不会变化：
 
 ```bash
@@ -395,5 +401,7 @@ git diff -- Formula/zotero-pdf2zh.rb
 - `Formula/zotero-pdf2zh.rb`：Homebrew formula 和服务包装逻辑
 - `scripts/update_formula.sh`：根据上游 release 更新 formula
 - `scripts/smoke_test.sh`：临时安装并做基本健康检查
+- `scripts/keep_workflows_active.sh`：在仓库接近 GitHub inactivity 阈值时创建 keepalive 提交
+- `tests/keep_workflows_active_test.sh`：验证首次创建和近期无需更新两种 keepalive 场景
 - `.github/workflows/update-zotero-pdf2zh.yml`：主更新流程
 - `.github/workflows/cleanup-bump-branches.yml`：分支清理兜底流程
